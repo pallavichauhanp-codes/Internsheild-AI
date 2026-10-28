@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { testConnection } from './config/db.js';
 import analyzeRoutes from './routes/analyzeRoutes.js';
+import scanRoutes from './routes/scanRoutes.js';
 import verifyRoutes from './routes/verifyRoutes.js';
 import reportRoutes from './routes/reportRoutes.js';
 
@@ -10,13 +11,19 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
-// Middleware
+// Middleware with flexible localhost CORS for dev
 app.use(cors({
-  origin: [CLIENT_URL, 'http://localhost:5173', 'http://127.0.0.1:5173'],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, curl, postman) or localhost
+    if (!origin || /^http:\/\/localhost:\d+$/.test(origin) || /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) {
+      return callback(null, true);
+    }
+    return callback(null, true); // Permissive in dev
+  },
   credentials: true
 }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -31,9 +38,10 @@ app.get('/api/health', (req, res) => {
 });
 
 // Mount Routes
-app.use('/api/analyze', analyzeRoutes);
-app.use('/api/verify', verifyRoutes);
-app.use('/api/reports', reportRoutes);
+app.use('/api/scans', scanRoutes);       // POST /api/scans/analyze
+app.use('/api/analyze', analyzeRoutes);   // Legacy POST /api/analyze
+app.use('/api/verify', verifyRoutes);     // GET /api/verify/domain
+app.use('/api/reports', reportRoutes);   // GET/POST /api/reports
 
 // 404 Handler
 app.use((req, res) => {
@@ -57,6 +65,7 @@ app.use((err, req, res, next) => {
 app.listen(PORT, async () => {
   console.log(`\n🛡️  =================================================`);
   console.log(`🛡️  InternShield AI Backend running on port ${PORT}`);
+  console.log(`🛡️  Scans Endpoint: http://localhost:${PORT}/api/scans/analyze`);
   console.log(`🛡️  Health check: http://localhost:${PORT}/api/health`);
   console.log(`🛡️  =================================================\n`);
   
