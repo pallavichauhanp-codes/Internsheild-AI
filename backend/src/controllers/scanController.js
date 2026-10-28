@@ -4,6 +4,7 @@ import pool from '../config/db.js';
 export async function handleAnalyzeScan(req, res) {
   try {
     const {
+      userId = null,
       internshipTitle,
       companyName,
       recruiterEmail,
@@ -36,6 +37,8 @@ export async function handleAnalyzeScan(req, res) {
       });
     }
 
+    const isFeeRequested = hasUpfrontFee === 'yes' || hasUpfrontFee === true ? 1 : 0;
+
     // Process scan with AI and rule-based verification engine
     const analysisResult = await analyzeStructuredScan({
       internshipTitle,
@@ -45,31 +48,56 @@ export async function handleAnalyzeScan(req, res) {
       internshipDescription,
       applicationUrl,
       offeredStipend,
-      hasUpfrontFee: hasUpfrontFee === 'yes' || hasUpfrontFee === true ? 'yes' : 'no',
+      hasUpfrontFee: isFeeRequested === 1 ? 'yes' : 'no',
       upfrontFeeAmount,
       additionalDetails
     });
 
-    // Asynchronously log to MySQL analysis_logs if connected
+    // Save scan to MySQL table `internship_scans` using parameterized queries
+    let scanRecordId = null;
     try {
-      await pool.query(
-        `INSERT INTO analysis_logs (input_text, risk_score, risk_level, red_flags, ai_recommendation) 
-         VALUES (?, ?, ?, ?, ?)`,
+      const [insertResult] = await pool.execute(
+        `INSERT INTO internship_scans (
+          user_id,
+          internship_title,
+          company_name,
+          recruiter_email,
+          company_website,
+          internship_description,
+          application_url,
+          stipend,
+          upfront_fee_requested,
+          risk_score,
+          risk_level,
+          analysis_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          `[${companyName}] ${internshipTitle}: ${internshipDescription.slice(0, 400)}`,
+          userId ? parseInt(userId, 10) : null,
+          internshipTitle.trim(),
+          companyName.trim(),
+          recruiterEmail ? recruiterEmail.trim() : null,
+          companyWebsite ? companyWebsite.trim() : null,
+          internshipDescription.trim(),
+          applicationUrl ? applicationUrl.trim() : null,
+          offeredStipend ? offeredStipend.trim() : null,
+          isFeeRequested,
           analysisResult.riskScore,
-          analysisResult.riskLevel === 'Low' ? 'SAFE' : analysisResult.riskLevel === 'Medium' ? 'MODERATE_RISK' : 'HIGH_RISK',
-          JSON.stringify(analysisResult.warningSigns || []),
-          analysisResult.summary
+          analysisResult.riskLevel, // 'Low', 'Medium', 'High', 'Critical'
+          JSON.stringify(analysisResult)
         ]
       );
+      scanRecordId = insertResult.insertId;
     } catch (dbErr) {
-      // Non-blocking log
+      // Non-blocking log if MySQL is not yet configured by the user
+      console.warn('MySQL Scan Record Insert Skipped:', dbErr.message);
     }
 
     return res.json({
       success: true,
-      data: analysisResult
+      data: {
+        ...analysisResult,
+        scanId: scanRecordId
+      }
     });
   } catch (err) {
     console.error('Scan analysis error:', err);

@@ -1,16 +1,17 @@
 import pool from '../config/db.js';
 
+/**
+ * Creates a new community scam report in MySQL community_reports table
+ */
 export async function handleCreateReport(req, res) {
   try {
     const {
+      userId = null,
       companyName,
-      recruiterContact,
-      platformSource,
-      fraudType,
+      internshipTitle,
       description,
-      requestedAmount,
-      evidenceLink,
-      reporterEmail
+      evidenceReference,
+      status = 'pending'
     } = req.body;
 
     if (!companyName || !description) {
@@ -21,19 +22,18 @@ export async function handleCreateReport(req, res) {
     }
 
     try {
-      const [result] = await pool.query(
-        `INSERT INTO scam_reports 
-        (company_name, recruiter_contact, platform_source, fraud_type, description, requested_amount, evidence_link, reporter_email) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      // Safe parameterized query
+      const [result] = await pool.execute(
+        `INSERT INTO community_reports 
+        (user_id, company_name, internship_title, description, evidence_reference, status) 
+        VALUES (?, ?, ?, ?, ?, ?)`,
         [
-          companyName,
-          recruiterContact || '',
-          platformSource || 'Other',
-          fraudType || 'Registration Fee',
-          description,
-          parseFloat(requestedAmount) || 0.0,
-          evidenceLink || '',
-          reporterEmail || ''
+          userId ? parseInt(userId, 10) : null,
+          companyName.trim(),
+          internshipTitle ? internshipTitle.trim() : null,
+          description.trim(),
+          evidenceReference ? evidenceReference.trim() : null,
+          status
         ]
       );
 
@@ -44,7 +44,6 @@ export async function handleCreateReport(req, res) {
       });
     } catch (dbErr) {
       console.warn('DB write skipped:', dbErr.message);
-      // Mock success response for hackathon demo when MySQL is not running yet
       return res.status(201).json({
         success: true,
         message: 'Report recorded (demo mode). Set up MySQL connection to persist data.',
@@ -56,35 +55,38 @@ export async function handleCreateReport(req, res) {
   }
 }
 
+/**
+ * Retrieves community reports from MySQL community_reports table
+ */
 export async function handleGetReports(req, res) {
   try {
     try {
-      const [rows] = await pool.query('SELECT * FROM scam_reports ORDER BY created_at DESC LIMIT 50');
+      const [rows] = await pool.query(
+        'SELECT id, user_id, company_name, internship_title, description, evidence_reference, status, created_at, updated_at FROM community_reports ORDER BY created_at DESC LIMIT 50'
+      );
       return res.json({ success: true, data: rows });
     } catch (dbErr) {
       console.warn('DB query skipped:', dbErr.message);
-      // Fallback sample reports for UI testing
+      // Fallback sample reports for UI testing when MySQL is not yet configured
       return res.json({
         success: true,
         demoMode: true,
         data: [
           {
             id: 1,
-            company_name: 'Apex Global Tech Solutions',
-            platform_source: 'Telegram',
-            fraud_type: 'Registration Fee',
-            description: 'Demanded ₹2,500 security deposit for training kit before issuing offer letter.',
-            requested_amount: '2500.00',
+            company_name: 'Apex Cloud Tech Solutions',
+            internship_title: 'React Developer Intern',
+            description: 'Recruiter contacted via WhatsApp pretending to be HR. Asked for ₹2,499 for security deposit before sending offer letter.',
+            evidence_reference: 'Fake offer PDF on unverified letterhead',
             status: 'verified_scam',
             created_at: new Date().toISOString()
           },
           {
             id: 2,
-            company_name: 'CloudScale Softlabs',
-            platform_source: 'WhatsApp',
-            fraud_type: 'Fake Task / Investment',
-            description: 'Offered ₹1,000/day for review tasks, then asked for ₹5,000 recharge to withdraw earnings.',
-            requested_amount: '5000.00',
+            company_name: 'NextGen Task Freelance',
+            internship_title: 'Data Reviewer',
+            description: 'Offered ₹1,500/day for review tasks in Telegram group. Demanded ₹5,000 recharge to unlock withdrawal.',
+            evidence_reference: 'Telegram group chat export',
             status: 'verified_scam',
             created_at: new Date().toISOString()
           }

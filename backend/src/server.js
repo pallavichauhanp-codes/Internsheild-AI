@@ -2,10 +2,12 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { testConnection } from './config/db.js';
-import analyzeRoutes from './routes/analyzeRoutes.js';
 import scanRoutes from './routes/scanRoutes.js';
-import verifyRoutes from './routes/verifyRoutes.js';
 import reportRoutes from './routes/reportRoutes.js';
+import verifyRoutes from './routes/verifyRoutes.js';
+import authRoutes from './routes/authRoutes.js';
+import savedRoutes from './routes/savedRoutes.js';
+import analyzeRoutes from './routes/analyzeRoutes.js';
 
 dotenv.config();
 
@@ -15,11 +17,10 @@ const PORT = process.env.PORT || 5000;
 // Middleware with flexible localhost CORS for dev
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps, curl, postman) or localhost
     if (!origin || /^http:\/\/localhost:\d+$/.test(origin) || /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) {
       return callback(null, true);
     }
-    return callback(null, true); // Permissive in dev
+    return callback(null, true);
   },
   credentials: true
 }));
@@ -27,21 +28,28 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Health Check
-app.get('/api/health', (req, res) => {
+// Health & Database Diagnostics Endpoint
+app.get('/api/health', async (req, res) => {
+  const isDbConnected = await testConnection();
   res.json({
     status: 'online',
     service: 'InternShield AI Backend API',
+    database: {
+      connected: isDbConnected,
+      name: process.env.DB_NAME || 'internshield_ai'
+    },
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development'
   });
 });
 
 // Mount Routes
+app.use('/api/auth', authRoutes);         // POST /api/auth/register, /api/auth/login
 app.use('/api/scans', scanRoutes);       // POST /api/scans/analyze
-app.use('/api/analyze', analyzeRoutes);   // Legacy POST /api/analyze
-app.use('/api/verify', verifyRoutes);     // GET /api/verify/domain
 app.use('/api/reports', reportRoutes);   // GET/POST /api/reports
+app.use('/api/saved', savedRoutes);       // POST /api/saved, GET /api/saved/:userId
+app.use('/api/verify', verifyRoutes);     // GET /api/verify/domain
+app.use('/api/analyze', analyzeRoutes);   // Legacy POST /api/analyze
 
 // 404 Handler
 app.use((req, res) => {
@@ -65,7 +73,7 @@ app.use((err, req, res, next) => {
 app.listen(PORT, async () => {
   console.log(`\n🛡️  =================================================`);
   console.log(`🛡️  InternShield AI Backend running on port ${PORT}`);
-  console.log(`🛡️  Scans Endpoint: http://localhost:${PORT}/api/scans/analyze`);
+  console.log(`🛡️  Database Target: ${process.env.DB_NAME || 'internshield_ai'}`);
   console.log(`🛡️  Health check: http://localhost:${PORT}/api/health`);
   console.log(`🛡️  =================================================\n`);
   
