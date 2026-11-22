@@ -1,11 +1,18 @@
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import { testConnection } from './config/db.js';
+import { generalLimiter } from './middleware/rateLimiter.js';
+import { errorHandler } from './middleware/errorHandler.js';
+
+// Route Modules
+import authRoutes from './routes/authRoutes.js';
 import scanRoutes from './routes/scanRoutes.js';
 import reportRoutes from './routes/reportRoutes.js';
+import dashboardRoutes from './routes/dashboardRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 import verifyRoutes from './routes/verifyRoutes.js';
-import authRoutes from './routes/authRoutes.js';
 import savedRoutes from './routes/savedRoutes.js';
 import analyzeRoutes from './routes/analyzeRoutes.js';
 
@@ -13,22 +20,40 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
-// Middleware with flexible localhost CORS for dev
+// 1. Secure CORS Configuration
+const allowedOrigins = [
+  CLIENT_URL,
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174'
+];
+
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || /^http:\/\/localhost:\d+$/.test(origin) || /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) {
+    // Allow server-to-server or curl requests with no origin, or matching allowed origins
+    if (!origin || allowedOrigins.includes(origin) || /^http:\/\/localhost:\d+$/.test(origin)) {
       return callback(null, true);
     }
-    return callback(null, true);
+    return callback(new Error(`Origin ${origin} not allowed by CORS policy`), false);
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// 2. Body & Cookie Parsing Middlewares
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+app.use(cookieParser());
 
-// Health & Database Diagnostics Endpoint
+// 3. Rate Limiting Middleware
+app.use('/api/', generalLimiter);
+
+// 4. Health Check & Diagnostics Endpoint
 app.get('/api/health', async (req, res) => {
   const isDbConnected = await testConnection();
   res.json({
@@ -38,45 +63,47 @@ app.get('/api/health', async (req, res) => {
       connected: isDbConnected,
       name: process.env.DB_NAME || 'internshield_ai'
     },
+    aiProvider: {
+      configured: !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_gemini_api_key_here',
+      model: 'gemini-1.5-flash',
+      fallbackReady: true
+    },
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development'
   });
 });
 
-// Mount Routes
-app.use('/api/auth', authRoutes);         // POST /api/auth/register, /api/auth/login
-app.use('/api/scans', scanRoutes);       // POST /api/scans/analyze
-app.use('/api/reports', reportRoutes);   // GET/POST /api/reports
-app.use('/api/saved', savedRoutes);       // POST /api/saved, GET /api/saved/:userId
-app.use('/api/verify', verifyRoutes);     // GET /api/verify/domain
-app.use('/api/analyze', analyzeRoutes);   // Legacy POST /api/analyze
+// 5. Mount Application Endpoints
+app.use('/api/auth', authRoutes);         // Authentication: register, login, logout, me
+app.use('/api/scans', scanRoutes);       // Scans: analyze, history, :id, delete
+app.use('/api/reports', reportRoutes);   // Reports: create, list, :id, update, delete
+app.use('/api/dashboard', dashboardRoutes); // Dashboard: stats
+app.use('/api/admin', adminRoutes);       // Admin: stats, reports, :id/status
+app.use('/api/verify', verifyRoutes);     // Domain verification lookup
+app.use('/api/saved', savedRoutes);       // Saved bookmarks
+app.use('/api/analyze', analyzeRoutes);   // Legacy scan compatibility
 
-// 404 Handler
+// 6. 404 Route Handler
 app.use((req, res) => {
   res.status(404).json({
     success: false,
-    message: `Endpoint ${req.method} ${req.originalUrl} not found`
+    message: `Endpoint ${req.method} ${req.originalUrl} not found on this server.`
   });
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Unhandled server error:', err);
-  res.status(500).json({
-    success: false,
-    message: 'Internal server error',
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined
-  });
-});
+// 7. Centralized Error Handling Middleware
+app.use(errorHandler);
 
-// Start server
+// 8. Server Boot
 app.listen(PORT, async () => {
   console.log(`\n🛡️  =================================================`);
   console.log(`🛡️  InternShield AI Backend running on port ${PORT}`);
-  console.log(`🛡️  Database Target: ${process.env.DB_NAME || 'internshield_ai'}`);
+  console.log(`🛡️  Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🛡️  Health check: http://localhost:${PORT}/api/health`);
   console.log(`🛡️  =================================================\n`);
   
-  // Test MySQL connection asynchronously on boot
+  // Asynchronously test MySQL connection on boot
   await testConnection();
 });
+
+export default app;

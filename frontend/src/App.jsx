@@ -15,6 +15,8 @@ import ReportDetails from './pages/Community/ReportDetails';
 import SafetyGuidelines from './pages/Guidelines/SafetyGuidelines';
 import AdminDashboard from './pages/Admin/AdminDashboard';
 
+import ScanDetails from './pages/Scanner/ScanDetails';
+
 // Shared Components & Global Styles
 import './components/components.css';
 import './App.css';
@@ -40,6 +42,7 @@ export default function App() {
               {/* Protected Student Routes */}
               <Route element={<ProtectedLayout />}>
                 <Route path="/dashboard" element={<StudentDashboard />} />
+                <Route path="/scans/:id" element={<ScanDetails />} />
               </Route>
 
               {/* Protected Admin Routes */}

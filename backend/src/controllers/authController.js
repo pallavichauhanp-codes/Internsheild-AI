@@ -1,162 +1,147 @@
 import bcrypt from 'bcryptjs';
 import pool from '../config/db.js';
+import { generateToken, COOKIE_OPTIONS } from '../middleware/authMiddleware.js';
 
 /**
- * Register a new user in MySQL users table.
- * Uses bcrypt to salt and hash passwords; never stores plaintext passwords.
+ * POST /api/auth/register
+ * Registers a new user, hashes password with bcrypt, generates JWT, and sets HttpOnly cookie
  */
-export async function handleRegister(req, res) {
+export async function handleRegister(req, res, next) {
   try {
     const { name, email, password, role = 'student' } = req.body;
-
-    if (!name || !email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Name, email, and password are required fields.'
-      });
-    }
-
-    if (password.length < 6) {
-      return res.status(400).json({
-        success: false,
-        message: 'Password must be at least 6 characters long.'
-      });
-    }
-
     const cleanEmail = email.toLowerCase().trim();
     const assignedRole = role === 'admin' ? 'admin' : 'student';
 
-    try {
-      // Check if email already registered
-      const [existing] = await pool.execute(
-        'SELECT id FROM users WHERE email = ?',
-        [cleanEmail]
-      );
+    // 1. Check if user already exists
+    const [existing] = await pool.execute(
+      'SELECT id FROM users WHERE email = ?',
+      [cleanEmail]
+    );
 
-      if (existing.length > 0) {
-        return res.status(409).json({
-          success: false,
-          message: 'An account with this email already exists.'
-        });
-      }
-
-      // Hash password using bcrypt (Cost Factor: 10)
-      const saltRounds = 10;
-      const passwordHash = await bcrypt.hash(password, saltRounds);
-
-      // Parameterized INSERT
-      const [result] = await pool.execute(
-        'INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
-        [name.trim(), cleanEmail, passwordHash, assignedRole]
-      );
-
-      return res.status(201).json({
-        success: true,
-        message: 'User registered successfully.',
-        data: {
-          id: result.insertId,
-          name: name.trim(),
-          email: cleanEmail,
-          role: assignedRole
-        }
-      });
-    } catch (dbErr) {
-      console.warn('MySQL User Registration Skipped (DB offline):', dbErr.message);
-      // Demo fallback response when MySQL is not yet configured
-      return res.status(201).json({
-        success: true,
-        message: 'Registration simulated (demo mode). Please run database/schema.sql in MySQL Workbench to persist.',
-        data: {
-          id: Date.now(),
-          name: name.trim(),
-          email: cleanEmail,
-          role: assignedRole,
-          isDemo: true
-        }
+    if (existing.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: 'An account with this email address already exists.'
       });
     }
-  } catch (err) {
-    console.error('Registration error:', err);
-    return res.status(500).json({
-      success: false,
-      message: 'Registration failed due to server error.',
-      error: err.message
+
+    // 2. Hash password with bcrypt (Cost: 10)
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
+
+    // 3. Insert into MySQL `users` table with parameterized query
+    const [result] = await pool.execute(
+      'INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
+      [name.trim(), cleanEmail, passwordHash, assignedRole]
+    );
+
+    const newUser = {
+      id: result.insertId,
+      name: name.trim(),
+      email: cleanEmail,
+      role: assignedRole
+    };
+
+    // 4. Generate JWT & set HttpOnly cookie
+    const token = generateToken(newUser);
+    res.cookie('token', token, COOKIE_OPTIONS);
+
+    return res.status(201).json({
+      success: true,
+      message: 'Account registered successfully.',
+      data: newUser,
+      token // also return in JSON for mobile or non-browser clients
     });
+  } catch (err) {
+    next(err);
   }
 }
 
 /**
- * Login user by verifying bcrypt password hash
+ * POST /api/auth/login
+ * Authenticates user credentials, generates JWT, and sets secure HttpOnly cookie
  */
-export async function handleLogin(req, res) {
+export async function handleLogin(req, res, next) {
   try {
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email and password are required.'
-      });
-    }
-
     const cleanEmail = email.toLowerCase().trim();
 
-    try {
-      // Parameterized query to retrieve user
-      const [rows] = await pool.execute(
-        'SELECT id, name, email, password_hash, role FROM users WHERE email = ?',
-        [cleanEmail]
-      );
+    // 1. Retrieve user by email
+    const [rows] = await pool.execute(
+      'SELECT id, name, email, password_hash, role FROM users WHERE email = ?',
+      [cleanEmail]
+    );
 
-      if (rows.length === 0) {
-        return res.status(401).json({
-          success: false,
-          message: 'Invalid email or password.'
-        });
-      }
-
-      const user = rows[0];
-
-      // Compare password against bcrypt hash
-      const isMatch = await bcrypt.compare(password, user.password_hash);
-      if (!isMatch) {
-        return res.status(401).json({
-          success: false,
-          message: 'Invalid email or password.'
-        });
-      }
-
-      return res.json({
-        success: true,
-        message: 'Login successful.',
-        data: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role
-        }
-      });
-    } catch (dbErr) {
-      console.warn('MySQL Login Skipped (DB offline):', dbErr.message);
-      // Demo fallback for test users
-      return res.json({
-        success: true,
-        message: 'Login simulated (demo mode).',
-        data: {
-          id: 1,
-          name: cleanEmail.split('@')[0],
-          email: cleanEmail,
-          role: cleanEmail.includes('admin') ? 'admin' : 'student',
-          isDemo: true
-        }
+    if (rows.length === 0) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password credentials.'
       });
     }
-  } catch (err) {
-    console.error('Login error:', err);
-    return res.status(500).json({
-      success: false,
-      message: 'Login failed due to server error.',
-      error: err.message
+
+    const user = rows[0];
+
+    // 2. Compare password against stored bcrypt hash
+    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password credentials.'
+      });
+    }
+
+    const authenticatedUser = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role
+    };
+
+    // 3. Generate JWT & set HttpOnly cookie
+    const token = generateToken(authenticatedUser);
+    res.cookie('token', token, COOKIE_OPTIONS);
+
+    return res.json({
+      success: true,
+      message: 'Authentication successful.',
+      data: authenticatedUser,
+      token
     });
+  } catch (err) {
+    next(err);
   }
+}
+
+/**
+ * POST /api/auth/logout
+ * Clears authentication HttpOnly cookie
+ */
+export function handleLogout(req, res) {
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+  });
+
+  return res.json({
+    success: true,
+    message: 'Logged out successfully.'
+  });
+}
+
+/**
+ * GET /api/auth/me
+ * Retrieves current authenticated user profile
+ */
+export function handleGetMe(req, res) {
+  return res.json({
+    success: true,
+    data: {
+      id: req.user.id,
+      name: req.user.name,
+      email: req.user.email,
+      role: req.user.role,
+      createdAt: req.user.created_at
+    }
+  });
 }

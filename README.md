@@ -98,26 +98,26 @@ cp backend/.env.example backend/.env
 ```
 Open `backend/.env` and update:
 - `DB_USER` and `DB_PASSWORD` for your local MySQL instance.
-- `GEMINI_API_KEY` with your free Google Gemini API key (optional: a built-in heuristic fallback runs even without an API key).
+- `GEMINI_API_KEY`: Server-side API key for Google Gemini (obtained from [Google AI Studio](https://aistudio.google.com/)).
+- `GEMINI_MODEL`: Model name (default: `gemini-1.5-flash`).
+- `AI_TIMEOUT_MS`: Execution timeout in ms (default: `8000`).
 
-### 3. Initialize MySQL Database
+> ℹ️ **Zero Configuration Fallback Mode**: Even without an API key or when offline, the built-in deterministic rule-based threat engine evaluates all 8 threat vectors automatically!
+
+### 3. Initialize MySQL Database (Optional for Testing)
 Run the schema script in your MySQL shell or import it into MySQL Workbench:
 ```bash
-mysql -u root -p < backend/src/db/schema.sql
+mysql -u root -p < database/schema.sql
 ```
-*Note: The backend gracefully runs in demo fallback mode even if MySQL is temporarily offline during initial testing.*
+*Note: The backend gracefully continues running and falls back gracefully if MySQL is temporarily offline during testing.*
 
-### 4. Install Dependencies
-Dependencies have already been locked and initialized:
+### 4. Run Automated Test Suite
+Verify that the AI service, validation schema, scoring logic, and fallback engine pass all checks:
 ```bash
-# Frontend
-cd frontend
-npm install
-
-# Backend
-cd ../backend
-npm install
+cd backend
+npm test
 ```
+*All 8 test suites (safe offer evaluation, critical fee scam, Telegram task fraud, uncertainty vs facts, timeout race, schema validation, and URL static inspection) will execute.*
 
 ---
 
@@ -144,28 +144,68 @@ Open your browser and navigate to **`http://localhost:5173`** to test the platfo
 
 ---
 
+## 🧪 Testing with Example Offers
+
+### 1. Safe Legitimate Internship Offer (Low Risk)
+Test with this authentic tech company offer payload in the Scanner or via curl:
+
+```json
+{
+  "internshipTitle": "Software Engineering Intern (Summer 2026)",
+  "companyName": "Microsoft India",
+  "recruiterEmail": "university-hiring@microsoft.com",
+  "companyWebsite": "https://careers.microsoft.com",
+  "internshipDescription": "Qualifications: Enrolled in B.Tech/M.Tech Computer Science graduating in 2027. Strong algorithmic problem solving, data structures, and distributed systems. 2 rounds of coding assessment followed by 2 technical interview loops. No application fee or deposits.",
+  "applicationUrl": "https://careers.microsoft.com/students/us/en/job/189201",
+  "offeredStipend": "₹80,000 / month",
+  "hasUpfrontFee": "no",
+  "upfrontFeeAmount": "",
+  "additionalDetails": "Application submitted directly via Microsoft university portal. Official recruiter verified on LinkedIn."
+}
+```
+**Expected Result**:
+- `risk_score`: 0 – 29 (**Low Risk**)
+- `positive_indicators`: Enterprise domain matches website, structured technical screening rounds, zero fees.
+- `warning_signs`: Minimal or none.
+
+### 2. Critical Scam Offer (Mandatory Training Fee)
+```json
+{
+  "internshipTitle": "Frontend React Developer Intern",
+  "companyName": "Apex Cloud Tech Solutions",
+  "recruiterEmail": "apex-hr-recruiting@gmail.com",
+  "companyWebsite": "https://apexcloud-tech.online",
+  "internshipDescription": "Congratulations! You have been selected without technical interviews. We offer Rs. 25,000/month. You are required to deposit Rs. 2,499 for mandatory training materials and corporate laptop insurance prior to offer letter dispatch.",
+  "applicationUrl": "https://bit.ly/apex-apply-2026",
+  "offeredStipend": "₹25,000 / month",
+  "hasUpfrontFee": "yes",
+  "upfrontFeeAmount": "2499",
+  "additionalDetails": "Recruiter contacted via WhatsApp and insisted on immediate payment within 2 hours."
+}
+```
+**Expected Result**:
+- `risk_score`: 85 – 100 (**Critical Risk**)
+- `recommended_actions`: **"IMMEDIATELY CEASE PAYMENT"** emergency advisory.
+- `warning_signs`: Upfront payment demanded, free webmail recruiter, direct selection without interview.
+
+---
+
 ## 🔌 API Endpoints Reference
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| `GET` | `/api/health` | Service health status and environment check |
-| `POST` | `/api/analyze` | AI fraud scan on job description / offer text |
-| `GET` | `/api/verify/domain?domain=...` | Verify corporate authenticity of email/domain |
-| `GET` | `/api/reports` | Retrieve list of community-reported scams |
-| `POST` | `/api/reports` | Submit a new scam report |
+| `GET` | `/api/health` | Service health status, DB connectivity & AI provider readiness |
+| `POST` | `/api/scans/analyze` | Full structured 8-vector threat scan (AI + Fallback) |
+| `GET` | `/api/scans/history` | Authenticated student's private scan history |
+| `GET` | `/api/scans/:id` | Retrieve single private scan with ownership verification |
+| `DELETE` | `/api/scans/:id` | Delete scan record (enforces ownership) |
+| `GET` | `/api/verify/domain?domain=...` | Verify corporate domain / recruiter email |
+| `GET` | `/api/reports` | Community fraud blacklist directory |
+| `POST` | `/api/reports` | Submit community scam report with evidence |
 
 ---
 
-## 📋 Hackathon Implementation Roadmap
-- [x] **Phase 1: Project Scaffolding & Setup** (Current)
-  - Clean separation of `frontend/` and `backend/`.
-  - Dependencies installed (`react`, `vite`, `express`, `mysql2`, `@google/generative-ai`, `lucide-react`).
-  - Dark mode design system with CSS variables.
-  - MySQL database schema script.
-- [ ] **Phase 2: Core Feature Implementation**
-  - Offer letter PDF/Text upload parser.
-  - Advanced prompt engineering with scoring breakdown (Salary vs Role authenticity, Recruiter legitimacy, Urgency traps).
-  - MySQL CRUD integration for user reports and upvoting.
-- [ ] **Phase 3: Testing & Hackathon Presentation Polish**
-  - Sample test cases with real scam offer comparisons.
-  - Interactive pitch demo deck.
+## 📖 Scoring Methodology & Ethical Limitations
+
+For full details on the 8 evaluated threat dimensions, mathematical vector weights, uncertainty handling, and zero active execution guarantees, refer to:
+👉 [Scoring Methodology Documentation](backend/docs/SCORING_METHODOLOGY.md)

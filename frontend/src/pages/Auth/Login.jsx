@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Shield, Lock, Mail, ArrowRight, UserCheck } from 'lucide-react';
+import { Shield, Lock, Mail, ArrowRight, UserCheck, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import Button from '../../components/common/Button';
 import Input from '../../components/common/Input';
@@ -9,25 +9,37 @@ import './Auth.css';
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState('student');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const [errorMsg, setErrorMsg] = useState('');
+  const { login, loginAsDemo } = useAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    setErrorMsg('');
     setLoading(true);
-    setTimeout(() => {
-      login(email || 'alex.student@college.edu', password, role);
+
+    try {
+      const user = await login(email, password);
+      navigate(user.role === 'admin' ? '/admin' : '/dashboard');
+    } catch (err) {
+      setErrorMsg(err.message || 'Invalid email or password.');
+    } finally {
       setLoading(false);
-      navigate(role === 'admin' ? '/admin' : '/dashboard');
-    }, 600);
+    }
   };
 
-  const handleQuickDemoLogin = (selectedRole) => {
-    const demoEmail = selectedRole === 'admin' ? 'security.admin@internshield.ai' : 'alex.student@college.edu';
-    login(demoEmail, 'password', selectedRole);
-    navigate(selectedRole === 'admin' ? '/admin' : '/dashboard');
+  const handleQuickDemoLogin = async (selectedRole) => {
+    setErrorMsg('');
+    setLoading(true);
+    try {
+      const user = await loginAsDemo(selectedRole);
+      navigate(user.role === 'admin' ? '/admin' : '/dashboard');
+    } catch (err) {
+      setErrorMsg(err.message || 'Demo login failed.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -42,41 +54,66 @@ export default function Login() {
             <p className="auth-subtitle">Sign in to InternShield AI security portal</p>
           </div>
 
-          {/* 1-Click Demo Login Box for hackathon judges */}
+          {/* 1-Click Demo Login Box with real database accounts */}
           <div className="demo-login-box">
             <div className="demo-login-header">
-              <span>🚀 Hackathon 1-Click Demo Login</span>
-              <span className="demo-badge">Instant</span>
+              <span>🚀 1-Click Test Login (Seeded Accounts)</span>
+              <span className="demo-badge">Real Auth</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
               <Button 
                 variant="outline" 
                 size="sm" 
+                type="button"
                 onClick={() => handleQuickDemoLogin('student')}
                 icon={<UserCheck size={14} />}
+                disabled={loading}
               >
                 As Student
               </Button>
               <Button 
                 variant="secondary" 
                 size="sm" 
+                type="button"
                 onClick={() => handleQuickDemoLogin('admin')}
                 icon={<Shield size={14} />}
+                disabled={loading}
               >
                 As Admin
               </Button>
             </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.4rem', textAlign: 'center' }}>
+              alex.student@college.edu &bull; security.admin@internshield.ai
+            </div>
           </div>
 
           <div className="auth-divider">
-            <span>Or continue with credentials</span>
+            <span>Or enter your credentials</span>
           </div>
+
+          {errorMsg && (
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: '8px',
+              padding: '0.75rem 1rem',
+              color: '#f87171',
+              fontSize: '0.88rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              marginBottom: '1rem'
+            }}>
+              <AlertCircle size={16} style={{ flexShrink: 0 }} />
+              <span>{errorMsg}</span>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="auth-form">
             <Input 
-              label="College or Work Email"
+              label="Email Address"
               type="email"
-              placeholder="student@college.edu"
+              placeholder="e.g. alex.student@college.edu"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               icon={<Mail size={16} />}
@@ -92,32 +129,6 @@ export default function Login() {
               icon={<Lock size={16} />}
               required
             />
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-              <label className="input-label">Select Account Role</label>
-              <div style={{ display: 'flex', gap: '0.75rem' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: '#cbd5e1', cursor: 'pointer' }}>
-                  <input 
-                    type="radio" 
-                    name="role" 
-                    value="student" 
-                    checked={role === 'student'} 
-                    onChange={() => setRole('student')}
-                  />
-                  College Student
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: '#cbd5e1', cursor: 'pointer' }}>
-                  <input 
-                    type="radio" 
-                    name="role" 
-                    value="admin" 
-                    checked={role === 'admin'} 
-                    onChange={() => setRole('admin')}
-                  />
-                  Security Admin
-                </label>
-              </div>
-            </div>
 
             <Button 
               type="submit" 

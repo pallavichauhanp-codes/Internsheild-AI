@@ -61,7 +61,7 @@ export default function Navbar() {
           {/* Health indicator */}
           <div className="server-status-pill" title={backendOnline ? 'Backend Express API is running' : 'Backend offline or connecting'}>
             <span className={`status-indicator ${backendOnline ? 'status-green' : 'status-amber'}`} />
-            <span className="status-label">{backendOnline ? 'API 5000' : 'Demo API'}</span>
+            <span className="status-label">{backendOnline ? 'API 5001' : 'Demo API'}</span>
           </div>
 
           {isAuthenticated ? (

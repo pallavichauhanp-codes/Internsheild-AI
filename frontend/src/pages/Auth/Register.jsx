@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Shield, Lock, Mail, User, GraduationCap, ArrowRight } from 'lucide-react';
+import { Shield, Lock, Mail, User, ArrowRight, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import Button from '../../components/common/Button';
 import Input from '../../components/common/Input';
@@ -9,20 +9,42 @@ import './Auth.css';
 export default function Register() {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [college, setCollege] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const [errorMsg, setErrorMsg] = useState('');
+  const { register } = useAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    setErrorMsg('');
+
+    if (password.length < 6) {
+      setErrorMsg('Password must be at least 6 characters long.');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setErrorMsg('Passwords do not match. Please re-enter.');
+      return;
+    }
+
     setLoading(true);
-    setTimeout(() => {
-      login(email || 'new.student@college.edu', password, 'student');
-      setLoading(false);
+
+    try {
+      await register({
+        name: fullName,
+        email,
+        password,
+        role: 'student'
+      });
       navigate('/dashboard');
-    }, 600);
+    } catch (err) {
+      setErrorMsg(err.message || 'Registration failed. Email may already be registered.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -33,9 +55,27 @@ export default function Register() {
             <div className="auth-logo-badge">
               <Shield size={28} />
             </div>
-            <h1 className="auth-title">Create Account</h1>
-            <p className="auth-subtitle">Join the student threat defense community</p>
+            <h1 className="auth-title">Create Student Account</h1>
+            <p className="auth-subtitle">Join the student recruitment threat defense network</p>
           </div>
+
+          {errorMsg && (
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: '8px',
+              padding: '0.75rem 1rem',
+              color: '#f87171',
+              fontSize: '0.88rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              marginBottom: '1rem'
+            }}>
+              <AlertCircle size={16} style={{ flexShrink: 0 }} />
+              <span>{errorMsg}</span>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="auth-form">
             <Input 
@@ -48,31 +88,31 @@ export default function Register() {
             />
 
             <Input 
-              label="College Email"
+              label="Email Address"
               type="email"
-              placeholder="rahul@college.edu"
+              placeholder="rahul@college.edu or personal email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               icon={<Mail size={16} />}
-              helperText="Use your institutional email for verified student status"
-              required
-            />
-
-            <Input 
-              label="College / University Name"
-              placeholder="e.g. National Institute of Technology"
-              value={college}
-              onChange={(e) => setCollege(e.target.value)}
-              icon={<GraduationCap size={16} />}
               required
             />
 
             <Input 
               label="Password"
               type="password"
-              placeholder="Minimum 8 characters"
+              placeholder="Minimum 6 characters"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              icon={<Lock size={16} />}
+              required
+            />
+
+            <Input 
+              label="Confirm Password"
+              type="password"
+              placeholder="Re-enter your password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
               icon={<Lock size={16} />}
               required
             />
@@ -86,7 +126,7 @@ export default function Register() {
               iconPosition="right"
               style={{ marginTop: '0.5rem' }}
             >
-              Get Protected Now
+              Register & Start Scanning
             </Button>
           </form>
 
